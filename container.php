@@ -1,6 +1,6 @@
 <?php
 
-declare(strict_types=1);
+declare(strict_types = 1);
 
 namespace Building\App;
 
@@ -40,6 +40,7 @@ use Prooph\ServiceBus\Message\Bernard\BernardMessageProducer;
 use Prooph\ServiceBus\Message\Bernard\BernardSerializer;
 use Prooph\ServiceBus\MessageBus;
 use Prooph\ServiceBus\Plugin\ServiceLocatorPlugin;
+use Rhumsaa\Uuid\Uuid;
 use Symfony\Component\EventDispatcher\EventDispatcher;
 use Zend\ServiceManager\ServiceManager;
 
@@ -50,7 +51,7 @@ return new ServiceManager([
         Connection::class => function () {
             $connection = DriverManager::getConnection([
                 'driverClass' => Driver::class,
-                'path'        => __DIR__ . '/data/db.sqlite3',
+                'path' => __DIR__ . '/data/db.sqlite3',
             ]);
 
             try {
@@ -67,8 +68,8 @@ return new ServiceManager([
             return $connection;
         },
 
-        EventStore::class                  => function (ContainerInterface $container) {
-            $eventBus   = new EventBus();
+        EventStore::class => function (ContainerInterface $container) {
+            $eventBus = new EventBus();
             $eventStore = new EventStore(
                 new DoctrineEventStoreAdapter(
                     $container->get(Connection::class),
@@ -94,9 +95,10 @@ return new ServiceManager([
                 public function __construct(
                     ContainerInterface $eventHandlers,
                     ContainerInterface $projectors
-                ) {
+                )
+                {
                     $this->eventHandlers = $eventHandlers;
-                    $this->projectors    = $projectors;
+                    $this->projectors = $projectors;
                 }
 
                 public function attach(ActionEventEmitter $dispatcher)
@@ -111,11 +113,11 @@ return new ServiceManager([
 
                 public function onRoute(ActionEvent $actionEvent)
                 {
-                    $messageName = (string) $actionEvent->getParam(MessageBus::EVENT_PARAM_MESSAGE_NAME);
+                    $messageName = (string)$actionEvent->getParam(MessageBus::EVENT_PARAM_MESSAGE_NAME);
 
                     $handlers = [];
 
-                    $listeners  = $messageName . '-listeners';
+                    $listeners = $messageName . '-listeners';
                     $projectors = $messageName . '-projectors';
 
                     if ($this->projectors->has($projectors)) {
@@ -137,11 +139,12 @@ return new ServiceManager([
             return $eventStore;
         },
 
-        CommandBus::class                  => function (ContainerInterface $container) : CommandBus {
+        CommandBus::class => function (ContainerInterface $container) : CommandBus {
             $commandBus = new CommandBus();
 
             $commandBus->utilize(new ServiceLocatorPlugin($container));
-            $commandBus->utilize(new class implements ActionEventListenerAggregate {
+            $commandBus->utilize(new class implements ActionEventListenerAggregate
+            {
                 public function attach(ActionEventEmitter $dispatcher)
                 {
                     $dispatcher->attachListener(MessageBus::EVENT_ROUTE, [$this, 'onRoute']);
@@ -156,7 +159,7 @@ return new ServiceManager([
                 {
                     $actionEvent->setParam(
                         MessageBus::EVENT_PARAM_MESSAGE_HANDLER,
-                        (string) $actionEvent->getParam(MessageBus::EVENT_PARAM_MESSAGE_NAME)
+                        (string)$actionEvent->getParam(MessageBus::EVENT_PARAM_MESSAGE_NAME)
                     );
                 }
             });
@@ -185,7 +188,7 @@ return new ServiceManager([
 
         MessageProducer::class => function (ContainerInterface $container) : MessageProducer {
             return new BernardMessageProducer(
-                new Producer($container->get(QueueFactory::class),new EventDispatcher()),
+                new Producer($container->get(QueueFactory::class), new EventDispatcher()),
                 'commands'
             );
         },
@@ -197,6 +200,23 @@ return new ServiceManager([
 
             return function (Command\RegisterNewBuilding $command) use ($buildings) {
                 $buildings->add(Building::new($command->name()));
+            };
+        },
+        Command\CheckInUser::class => function(ContainerInterface $container) : callable  {
+            $buildings = $container->get(BuildingRepositoryInterface::class);
+
+            return function(Command\CheckInUser $command) use ($buildings) {
+                $uuid = Uuid::fromString($command->buildingId());
+                $buildings->get($uuid)->checkInUser($command->username());
+            };
+        },
+        Command\CheckOutUser::class => function(ContainerInterface $container) : callable  {
+            $buildings = $container->get(BuildingRepositoryInterface::class);
+
+            return function(Command\CheckOutUser $command) use ($buildings) {
+                $buildings
+                    ->get(Uuid::fromString($command->buildingId()))
+                    ->checkOutUser($command->username());
             };
         },
         BuildingRepositoryInterface::class => function (ContainerInterface $container) : BuildingRepositoryInterface {
